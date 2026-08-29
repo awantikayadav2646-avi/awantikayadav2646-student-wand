@@ -114,6 +114,56 @@ function getAIClient(): GoogleGenAI | null {
   return aiClient;
 }
 
+// Resilient Gemini AI content generation with automatic model fallback for 503 high demand spikes
+async function generateGeminiContentWithResilience(params: {
+  contents: any;
+  config?: any;
+}): Promise<string> {
+  const ai = getAIClient();
+  if (!ai) {
+    throw new Error('No GEMINI_API_KEY available');
+  }
+
+  // Model fallback order for handling transient spikes / 503s gracefully
+  const modelsToTry = ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+  let lastError: any = null;
+
+  for (const modelName of modelsToTry) {
+    try {
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: params.contents,
+        config: params.config,
+      });
+
+      if (response && response.text) {
+        return response.text;
+      }
+    } catch (err: any) {
+      lastError = err;
+      const errorMsg = err?.message || JSON.stringify(err);
+      const isHighDemandOrUnavailable =
+        errorMsg.includes('503') ||
+        errorMsg.includes('high demand') ||
+        errorMsg.includes('UNAVAILABLE') ||
+        errorMsg.includes('429') ||
+        errorMsg.includes('RESOURCE_EXHAUSTED') ||
+        errorMsg.includes('overloaded');
+
+      if (isHighDemandOrUnavailable) {
+        console.warn(`[Gemini Resilience] Model ${modelName} experiencing high demand / 503, trying fallback...`);
+        // Short pause before switching to fallback model
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
+      // If it's another non-capacity error (e.g. invalid config), stop loop
+      break;
+    }
+  }
+
+  throw lastError || new Error('All Gemini model instances were busy');
+}
+
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
@@ -126,7 +176,6 @@ app.post('/api/gemini/chat', async (req: Request, res: Response) => {
     const ai = getAIClient();
 
     if (!ai) {
-      // Intelligent mock fallback response
       const fallbackResponse = generateLocalWandResponse(message, contextData);
       return res.json({ reply: fallbackResponse, source: 'local_engine' });
     }
@@ -145,8 +194,7 @@ Context Data Provided:
 ${JSON.stringify(contextData || {}, null, 2)}
 `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+    const text = await generateGeminiContentWithResilience({
       contents: message,
       config: {
         systemInstruction: systemPrompt,
@@ -154,9 +202,9 @@ ${JSON.stringify(contextData || {}, null, 2)}
       },
     });
 
-    res.json({ reply: response.text || 'I am ready to help you with your college queries!', source: 'gemini' });
+    res.json({ reply: text || 'I am ready to help you with your college queries!', source: 'gemini' });
   } catch (error: any) {
-    console.error('Gemini chat error:', error?.message || error);
+    console.error('Gemini chat error handled gracefully:', error?.message || error);
     const fallback = generateLocalWandResponse(req.body.message || '', req.body.contextData);
     res.json({ reply: fallback, source: 'fallback' });
   }
@@ -193,8 +241,7 @@ Analyze the student problem and provide a structured JSON response matching this
 }
 Ensure output is valid JSON only. Answer in clear English or polite Hinglish if the query was in Hinglish.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+    const text = await generateGeminiContentWithResilience({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -202,10 +249,10 @@ Ensure output is valid JSON only. Answer in clear English or polite Hinglish if 
       },
     });
 
-    const parsed = JSON.parse(response.text || '{}');
+    const parsed = JSON.parse(text || '{}');
     res.json({ solution: parsed, source: 'gemini' });
   } catch (error: any) {
-    console.error('Problem solver error:', error?.message || error);
+    console.error('Problem solver error handled gracefully:', error?.message || error);
     const localResult = generateLocalProblemSolution(req.body.query || '', req.body.collegeContext);
     res.json({ solution: localResult, source: 'fallback' });
   }
@@ -254,8 +301,7 @@ Include daily morning/evening slots, targeted review topics, and practice proble
       prompt = `Summarize and extract key formula/theorems/takeaways from these student notes on ${topic}: "${notesText || topic}". Format with clear bullet points.`;
     }
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+    const text = await generateGeminiContentWithResilience({
       contents: prompt,
       config: {
         responseMimeType: action === 'quiz' ? 'application/json' : 'text/plain',
@@ -263,18 +309,18 @@ Include daily morning/evening slots, targeted review topics, and practice proble
       },
     });
 
-    let result = response.text;
+    let result = text;
     if (action === 'quiz') {
       try {
-        result = JSON.parse(response.text || '{}');
+        result = JSON.parse(text || '{}');
       } catch (e) {
-        result = response.text;
+        result = text;
       }
     }
 
     res.json({ result, source: 'gemini' });
   } catch (error: any) {
-    console.error('Study assistant error:', error?.message || error);
+    console.error('Study assistant error handled gracefully:', error?.message || error);
     const localStudyRes = generateLocalStudyAssistant(req.body.action, req.body.topic, req.body.subject);
     res.json({ result: localStudyRes, source: 'fallback' });
   }
@@ -314,8 +360,7 @@ Provide a JSON object matching this schema:
   "suggestedQuestionsToAskFaculty": ["Question to ask during campus visit 1", "Question 2"]
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+    const text = await generateGeminiContentWithResilience({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -323,10 +368,10 @@ Provide a JSON object matching this schema:
       },
     });
 
-    const parsed = JSON.parse(response.text || '{}');
+    const parsed = JSON.parse(text || '{}');
     res.json({ fitAnalysis: parsed, source: 'gemini' });
   } catch (error: any) {
-    console.error('Fit analysis error:', error?.message || error);
+    console.error('Fit analysis error handled gracefully:', error?.message || error);
     const localFit = generateLocalCollegeFit(req.body.college, req.body.preferences);
     res.json({ fitAnalysis: localFit, source: 'fallback' });
   }
@@ -362,8 +407,7 @@ Provide a JSON object matching this schema:
   ]
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+    const text = await generateGeminiContentWithResilience({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -371,10 +415,10 @@ Provide a JSON object matching this schema:
       },
     });
 
-    const parsed = JSON.parse(response.text || '{}');
+    const parsed = JSON.parse(text || '{}');
     res.json({ comparison: parsed, source: 'gemini' });
   } catch (error: any) {
-    console.error('Compare error:', error?.message || error);
+    console.error('Compare error handled gracefully:', error?.message || error);
     const localComp = generateLocalComparison(req.body.colleges, req.body.studentPriorities);
     res.json({ comparison: localComp, source: 'fallback' });
   }

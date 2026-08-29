@@ -31,6 +31,13 @@ if (typeof window !== 'undefined') {
       event.stopImmediatePropagation();
     }
   });
+
+  // Register service worker for PWA installation
+  if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+  }
 }
 
 createRoot(document.getElementById('root')!).render(

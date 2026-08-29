@@ -25,6 +25,7 @@ import {
   HeartHandshake,
   PhoneCall,
   Database,
+  Download,
 } from 'lucide-react';
 import { UserRole, StudentProfile, NoticeItem, SupportedLanguage } from '../types';
 import { SUPPORTED_LANGUAGES, getTranslation } from '../data/i18n';
@@ -42,6 +43,7 @@ interface NavbarProps {
   onOpenProfile: () => void;
   onOpenOnboarding?: () => void;
   onChangeLanguage?: (lang: SupportedLanguage) => void;
+  onOpenInstall?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -57,6 +59,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenProfile,
   onOpenOnboarding,
   onChangeLanguage,
+  onOpenInstall,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const t = getTranslation(studentProfile.language || 'en');
@@ -188,6 +191,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
 
             {/* Personalize / Onboarding Quick Trigger */}
+            {/* Install App Action Trigger */}
+            {onOpenInstall && (
+              <button
+                id="install-app-nav-btn"
+                onClick={onOpenInstall}
+                className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-xs font-bold transition-all hover:scale-102 cursor-pointer shadow-2xs"
+                title="Install Student Wand as desktop or mobile app"
+              >
+                <Download className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Install App</span>
+              </button>
+            )}
+
             {/* Supabase Connected Database Badge */}
             <div
               className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 text-[11px] font-bold border border-emerald-200"
@@ -338,6 +354,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                 );
               })}
           </div>
+
+          {onOpenInstall && (
+            <div className="pt-2 border-t border-slate-100">
+              <button
+                onClick={() => {
+                  onOpenInstall();
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs border border-indigo-200 transition-colors"
+              >
+                <Download className="w-4 h-4 text-indigo-600" />
+                <span>Install Student Wand App</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </header>
